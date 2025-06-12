@@ -136,6 +136,27 @@ libjxl_threads_dep = libjxl_proj.dependency('jxl_threads')
 meson.override_dependency('libjxl_threads', libjxl_threads_dep)
 "@
 
+if (-not (Test-Path "$subprojects/SvtAv1Enc")) {
+    New-Item -Path "$subprojects/SvtAv1Enc" -ItemType Directory | Out-Null
+}
+
+# Manually wrap SvtAv1Enc for CMAKE_POLICY_VERSION_MINIMUM option
+Set-Content -Path "$subprojects/SvtAv1Enc/meson.build" -Value @"
+project('SvtAv1Enc', 'cpp', version: '2.3.0')
+
+cmake = import('cmake')
+opts = cmake.subproject_options()
+opts.add_cmake_defines({
+    'EXCLUDE_HASH ': 'ON',
+    'BUILD_APPS': 'OFF',
+    'BUILD_SHARED_LIBS': 'OFF',
+    'CMAKE_POLICY_VERSION_MINIMUM': '3.5'
+})
+SvtAv1Enc_proj = cmake.subproject('SVT-AV1', options: opts)
+SvtAv1Enc_dep = SvtAv1Enc_proj.dependency('SvtAv1Enc')
+meson.override_dependency('SvtAv1Enc', SvtAv1Enc_dep)
+"@
+
 $projects = @(
     @{
         Path = "$subprojects/ffmpeg.wrap"
@@ -190,6 +211,13 @@ $projects = @(
             "aom = aom_dep"
         )
     }
+    @{
+        Path = "$subprojects/SVT-AV1.wrap"
+        URL = "https://gitlab.com/AOMediaCodec/SVT-AV1.git"
+        # Cannot use 3.0+, because ffmpeg meson port doesn't support it now.
+        # https://git.ffmpeg.org/gitweb/ffmpeg.git/commit/d1ed5c06e3edc5f2b5f3664c80121fa55b0baa95
+        Revision = "v2.3.0"
+    }
 )
 
 foreach ($project in $projects) {
@@ -224,6 +252,7 @@ meson setup build `
     -Dffmpeg:libdav1d=enabled `
     -Dffmpeg:libjxl=enabled `
     -Dffmpeg:libaom=enabled `
+    -Dffmpeg:libsvtav1=enabled `
     -Dlcms2:fastfloat=true `
     -Dlcms2:jpeg=disabled `
     -Dlcms2:tiff=disabled `
@@ -250,6 +279,19 @@ meson setup build `
     -Drubberband=disabled `
     -Dwayland=disabled `
     -Dx11=disabled
+
+# manually create EbVersion.h, because the generate step not run.
+# something wrong in svt-av1's cmake?
+if (-not (Test-Path "$subprojects/SVT-AV1/__CMake_build/Source/Lib/Codec/EbVersion.h")) {
+    if (-not (Test-Path "$subprojects/SVT-AV1/__CMake_build/Source/Lib/Codec")) {
+        New-Item -Path "$subprojects/SVT-AV1/__CMake_build/Source/Lib/Codec" -ItemType Directory | Out-Null
+    }
+    Write-Host "CMake does not generate EbVersion.h, create EbVersion.h in $subprojects/SVT-AV1/__CMake_build/Source/Lib/Codec manually."
+    Set-Content -Path "$subprojects/SVT-AV1/__CMake_build/Source/Lib/Codec/EbVersion.h" -Value @"
+#define SVT_AV1_CVS_VERSION "2.3.0"
+"@
+}
+
 ninja -C build mpv.exe mpv.com libmpv.a
 cp ./build/subprojects/vulkan-loader/vulkan.dll ./build/vulkan-1.dll
 ./build/mpv.com -v --no-config
